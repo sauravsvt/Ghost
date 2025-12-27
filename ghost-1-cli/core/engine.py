@@ -1,415 +1,265 @@
 """
-Ghost Engine - Multimodal Vision-Language Inference
+Ghost Engine v3.0 - Gemini Cloud Brain
 
-This module provides the brain for Ghost-1, combining:
-1. Vision: Moondream2 VLM for screen understanding
-2. Language: Qwen-1.5 for reasoning and action generation
+This replaces the local Qwen + Moondream stack with a single
+Gemini API call that handles both vision AND reasoning.
 
-The engine now truly "sees" the screen.
+Trade-off: Privacy for Supercomputer Capabilities
+- 8K resolution understanding
+- Multi-step planning
+- Code generation
 """
 
 import os
-import sys
-import time
-import logging
+import base64
 import json
 import re
-from pathlib import Path
-from typing import Optional, Dict, Any, Tuple, List
-from dataclasses import dataclass, field
-import numpy as np
-from PIL import Image
+import logging
+from typing import Optional, Dict, Any
+from dotenv import load_dotenv
+
+# Load env variables (API Key)
+load_dotenv()
 
 logger = logging.getLogger("GhostEngine")
 
+# System prompt - Simple natural protocol with ABSOLUTE coordinates
+SYSTEM_PROMPT = """You are Ghost-1, an autonomous computer agent.
+You see the screen and control the mouse/keyboard.
 
-@dataclass
-class ModelConfig:
-    """Configuration for Ghost inference engine."""
-    
-    # Text LLM (for reasoning/action generation) - Speed optimized 0.5B
-    llm_model_repo: str = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
-    llm_model_file: str = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
-    
-    # Vision LLM (for screen understanding)
-    vlm_model: str = "vikhyatk/moondream2"
-    vlm_revision: str = "2025-06-21"
-    
-    # Paths
-    models_dir: str = field(default_factory=lambda: str(Path(__file__).parent.parent / "models"))
-    
-    # Inference params
-    context_length: int = 4096
-    max_tokens: int = 1024
-    temperature: float = 0.3
-    
-    # Hardware
-    use_gpu: bool = False
-    n_threads: int = 0
-    
-    @property
-    def llm_path(self) -> str:
-        return os.path.join(self.models_dir, self.llm_model_file)
+PROTOCOL:
+1. If you need to ACT (click, type, scroll, open), output JSON ONLY.
+2. If you are DONE or need to talk to the user, output PLAIN TEXT only.
+3. Do NOT stop until the user's goal is FULLY complete.
 
+COORDINATE SYSTEM (IMPORTANT):
+- Screen resolution is 1920x1080 pixels
+- Use ABSOLUTE pixel coordinates (not normalized)
+- (0,0) = top-left corner, (1920,1080) = bottom-right corner
 
-def download_llm(config: ModelConfig) -> str:
-    """Download text LLM if not present."""
-    from huggingface_hub import hf_hub_download
-    
-    model_path = config.llm_path
-    if os.path.exists(model_path):
-        return model_path
-    
-    os.makedirs(config.models_dir, exist_ok=True)
-    logger.info(f"Downloading LLM: {config.llm_model_file}...")
-    
-    return hf_hub_download(
-        repo_id=config.llm_model_repo,
-        filename=config.llm_model_file,
-        local_dir=config.models_dir,
-        local_dir_use_symlinks=False
-    )
+YOUTUBE LAYOUT GUIDE (1920x1080):
+- Search bar: x=600-700, y=40-50 (top center, very close to top edge)
+- First video thumbnail in search results: x=400-500, y=300-400
+- Video player: center of screen when playing
+
+COMMON UI PATTERNS:
+- Browser URL bar: x=400-600, y=50-80
+- Windows Start button: x=30, y=1050 (bottom-left)
+- Close button (X): top-right corner of windows
+
+TOOLS:
+{"tool": "browser.open", "args": {"url": "https://..."}, "reasoning": "..."}
+{"tool": "mouse.click", "args": {"x": 650, "y": 45}, "reasoning": "Clicking YouTube search bar"}
+{"tool": "keyboard.type_and_enter", "args": {"text": "..."}, "reasoning": "..."}
+{"tool": "keyboard.type", "args": {"text": "..."}, "reasoning": "..."}
+{"tool": "keyboard.press", "args": {"key": "enter"}, "reasoning": "..."}
+{"tool": "mouse.scroll", "args": {"direction": "down", "amount": 3}, "reasoning": "..."}
+{"tool": "wait", "args": {"seconds": 2}, "reasoning": "..."}
+
+EXAMPLE - Playing song on YouTube:
+Step 1: {"tool": "browser.open", "args": {"url": "https://youtube.com"}, "reasoning": "Opening YouTube"}
+Step 2: {"tool": "mouse.click", "args": {"x": 650, "y": 45}, "reasoning": "Clicking search bar at top"}
+Step 3: {"tool": "keyboard.type_and_enter", "args": {"text": "hindi songs"}, "reasoning": "Searching"}
+Step 4: {"tool": "mouse.click", "args": {"x": 450, "y": 350}, "reasoning": "Clicking first video"}
+Step 5: "The song is now playing on YouTube."
+
+Remember: JSON = keep working. Plain text = you're done."""
 
 
 class GhostEngine:
     """
-    The Brain - Multimodal Vision-Language Agent.
+    The Cloud Brain - Gemini API for Vision + Reasoning.
     
-    Combines:
-    - VLM (Moondream2) for visual understanding
-    - LLM (Qwen) for reasoning and action generation
-    
-    The agent can now truly see the screen and reason about it.
+    Replaces both Moondream (vision) and Qwen (reasoning) with a single
+    Gemini API call that can understand images and plan actions.
     """
     
-    SYSTEM_PROMPT = """You are Ghost-1, an autonomous desktop agent that can SEE the screen and execute actions.
-
-You will receive:
-1. A description of what is currently visible on screen (from your vision system)
-2. The user's task
-
-Based on what you SEE, decide what action to take.
-
-OUTPUT FORMAT:
-<think>
-[Your reasoning based on what you see on screen]
-</think>
-{"tool": "tool_name", "param": "value"}
-
-TOOLS:
-- browser.open: {"tool": "browser.open", "url": "https://youtube.com"}
-- keyboard.type: {"tool": "keyboard.type", "text": "search query"}  
-- keyboard.hotkey: {"tool": "keyboard.hotkey", "keys": "ctrl+t"}
-- mouse.click: {"tool": "mouse.click", "target": "search button"} - Use 'target' for element names
-- wait: {"tool": "wait", "seconds": 2}
-- done: {"tool": "done", "message": "Task completed"}
+    def __init__(self):
+        self.api_key = os.environ.get("GEMINI_API_KEY")
+        if not self.api_key:
+            raise ValueError("❌ GEMINI_API_KEY missing! Add it to your .env file.")
+        
+        # Import here to avoid loading if not used
+        try:
+            from google import genai
+            from google.genai import types
+            self.genai = genai
+            self.types = types
+        except ImportError:
+            raise ImportError("❌ google-genai not installed. Run: pip install google-genai")
+        
+        logger.info("Connecting to Gemini Cloud Brain...")
+        print("[*] Connecting to Gemini Cloud Brain...")
+        
+        self.client = genai.Client(api_key=self.api_key)
+        
+        # Model selection - try experimental thinking model first
+        # Fallback chain: thinking-exp -> flash-exp -> flash
+        self.model = "gemini-3-pro-preview"
+        self.fallback_models = [
+            "gemini-flash-latest",
+            "gemini-flash-lite-latest"
+        ]
+        
+        print(f"[*] Using model: {self.model}")
+        logger.info(f"Gemini client initialized with model: {self.model}")
+    
+    def think(self, user_prompt: str, screen_image_bytes: Optional[bytes] = None) -> Dict[str, Any]:
+        """
+        Send text + screen (if available) to Gemini.
+        
+        Args:
+            user_prompt: What the user wants to do
+            screen_image_bytes: JPEG bytes of the screen (optional)
+            
+        Returns:
+            Dict with 'action' (parsed JSON) and 'raw_response'
+        """
+        types = self.types
+        parts = []
+        
+        # 1. Add Image (if we have one)
+        if screen_image_bytes:
+            parts.append(types.Part.from_bytes(
+                data=screen_image_bytes, 
+                mime_type="image/jpeg"
+            ))
+            logger.info("Added screen image to request")
+        
+        # 2. Add the prompt (system + user combined)
+        full_prompt = f"{SYSTEM_PROMPT}\n\n---\nUser Request: {user_prompt}\n---\n\nRespond with JSON only:"
+        parts.append(types.Part.from_text(text=full_prompt))
+        
+        # 3. Call API with retry logic
+        response_text = self._call_api(parts)
+        
+        # 4. Parse JSON from response
+        action = self._parse_json(response_text)
+        
+        return {
+            "action": action,
+            "raw_response": response_text,
+            "reasoning": action.get("reasoning", "") if action else ""
+        }
+    
+    def think_fast(self, user_prompt: str, screen_context: str = "") -> Dict[str, Any]:
+        """
+        Fast thinking without image upload.
+        Used for simple commands where vision isn't needed.
+        """
+        return self.think(user_prompt, screen_image_bytes=None)
+    
+    def think_text(self, context: str) -> str:
+        """
+        Pure text thinking - for UI tree based reasoning.
+        
+        This is the FAST path:
+        - No image upload
+        - Just text in, text out
+        - Perfect for UI element selection
+        
+        Args:
+            context: The full context including UI tree and task
+            
+        Returns:
+            Raw response text (JSON or plain text)
+        """
+        types = self.types
+        
+        # Simple text prompt - no vision needed
+        prompt = f"""You are Ghost-1, a UI automation agent.
+You will be given a list of UI elements and a task.
+Pick the right element ID to click, or speak if done.
 
 RULES:
-- Use vision descriptions to understand the current state
-- Output exactly ONE action at a time
-- Use element names in mouse.click target (e.g., "search button", "play button")
-- Say 'done' when the task is complete"""
+- To click an element: {{"tool": "ui.click", "id": NUMBER}}
+- To type in a field: {{"tool": "ui.type", "id": NUMBER, "text": "..."}}
+- To open a URL: {{"tool": "browser.open", "url": "https://..."}}
+- To type anywhere: {{"tool": "keyboard.type", "text": "..."}}
+- To press a key: {{"tool": "keyboard.press", "key": "enter"}}
+- If DONE: Just say it in plain text (no JSON)
 
-    def __init__(self, config: Optional[ModelConfig] = None):
-        self.config = config or ModelConfig()
-        self.llm = None
-        self.vlm = None
-        self.memory = None
-        self._load_engines()
+Output JSON to continue working, or plain text when finished.
 
-    def _load_engines(self):
-        """Load both VLM and LLM."""
-        logger.info("Initializing Ghost Engine (Vision + Language)...")
-        start = time.time()
+{context}"""
         
-        # Load VLM (Moondream2)
-        self._load_vlm()
+        parts = [types.Part.from_text(text=prompt)]
+        response = self._call_api(parts)
         
-        # Load LLM (Qwen)
-        self._load_llm()
-        
-        # Load Memory (Experience Replay)
-        try:
-            from core.trainer import ExperienceManager
-            self.memory = ExperienceManager()
-            logger.info("Experience Memory loaded.")
-        except ImportError:
-            logger.warning("ExperienceManager not found (trainer.py missing?). Learning disabled.")
-            self.memory = None
-
-        logger.info(f"Engines ready in {time.time() - start:.1f}s")
+        return response or ""
     
-    def log_success(self, task: str, result: Dict[str, Any]):
-        """Log a successful interaction to Experience Replay."""
-        if self.memory and result.get("action"):
-            self.memory.add_experience(
-                task=task,
-                vision_desc=result.get("vision", ""),
-                reasoning=result.get("reasoning", ""),
-                action=result.get("action")
-            )
+    def see(self, image_bytes: bytes, question: str = "What do you see?") -> str:
+        """
+        Use Gemini's vision to describe the screen.
+        """
+        types = self.types
+        parts = [
+            types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+            types.Part.from_text(text=f"Describe this screen briefly: {question}")
+        ]
+        
+        return self._call_api(parts)
     
-    @staticmethod
-    def absmean_quantization(W: np.ndarray) -> np.ndarray:
-        """
-        Simulate BitNet 1.58-bit Absmean Quantization.
-        Formula: W ~ Round(gamma * W), gamma = 1 / mean(|W|)
+    def _call_api(self, parts: list) -> str:
+        """Call Gemini API with fallback to other models if needed."""
+        types = self.types
         
-        This process constrains weights to {-1, 0, 1} for high-speed inference.
-        """
-        eps = 1e-5
-        gamma = 1.0 / (np.mean(np.abs(W)) + eps)
-        W_scaled = W * gamma
-        W_quant = np.round(W_scaled)
-        W_quant = np.clip(W_quant, -1, 1)
-        return W_quant
-
-    def _load_vlm(self):
-        """Load Vision-Language Model (FastVision GGUF preferred)."""
-        # Try FastVision (GGUF via llama.cpp) first
-        try:
-            from vision.fast_vision import load_fast_vision
-            logger.info("Initializing FastVision (Optimized GGUF)...")
-            self.vlm = load_fast_vision()
-            if self.vlm:
-                logger.info("FastVision loaded successfully.")
-                return
-        except Exception as e:
-            logger.warning(f"FastVision loading failed: {e}")
-            logger.info("Falling back to Standard VLM (Transformers)...")
-
-        # Fallback to Standard Transformers
-        try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
-            import torch
-            
-            logger.info("Loading Moondream2 VLM (Standard)...")
-            
-            # Load tokenizer
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.config.vlm_model,
-                revision=self.config.vlm_revision,
-                trust_remote_code=True
-            )
-            
-            # Load model without device_map (works better on CPU)
-            self.vlm = AutoModelForCausalLM.from_pretrained(
-                self.config.vlm_model,
-                revision=self.config.vlm_revision,
-                trust_remote_code=True,
-                torch_dtype=torch.float32,
-                low_cpu_mem_usage=True
-            )
-            
-            # Move to appropriate device
-            device = "cuda" if self.config.use_gpu and torch.cuda.is_available() else "cpu"
-            self.vlm = self.vlm.to(device)
-            self.vlm.eval()  # Set to evaluation mode
-            
-            logger.info(f"VLM loaded on {device}")
-            
-        except Exception as e:
-            logger.warning(f"VLM loading failed: {e}")
-            logger.warning("Vision will be disabled.")
-            self.vlm = None
-            self.tokenizer = None
+        models_to_try = [self.model] + self.fallback_models
+        last_error = None
+        
+        for model in models_to_try:
+            try:
+                response = self.client.models.generate_content(
+                    model=model,
+                    contents=[types.Content(role="user", parts=parts)],
+                    config=types.GenerateContentConfig(
+                        temperature=0.1,  # Precise actions
+                        max_output_tokens=1024
+                    )
+                )
+                
+                if model != self.model:
+                    logger.info(f"Using fallback model: {model}")
+                    self.model = model  # Update for future calls
+                
+                return response.text
+                
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Model {model} failed: {e}")
+                continue
+        
+        return f"API Error: {last_error}"
     
-    def _load_llm(self):
-        """Load Qwen LLM for reasoning."""
-        try:
-            from llama_cpp import Llama
-        except ImportError:
-            raise ImportError("Install: pip install llama-cpp-python huggingface-hub")
-        
-        model_path = download_llm(self.config)
-        logger.info(f"Loading LLM: {model_path}")
-        
-        n_threads = self.config.n_threads
-        if n_threads == 0:
-            import multiprocessing
-            n_threads = max(1, multiprocessing.cpu_count() // 2)
-        
-        self.llm = Llama(
-            model_path=model_path,
-            n_ctx=self.config.context_length,
-            n_threads=n_threads,
-            verbose=False
-        )
-        
-        logger.info("LLM loaded")
-    
-    def see(self, image: Image.Image, question: Optional[str] = None) -> str:
-        """
-        Use VLM to understand what's on screen.
-        
-        Args:
-            image: PIL Image of the screen
-            question: Optional specific question
-            
-        Returns:
-            Description of screen content
-        """
-        if not self.vlm:
-            return "[Vision disabled - VLM not loaded]"
-        
-        if question is None:
-            question = "Describe this computer screen. What application is open? What buttons, text fields, and clickable elements do you see? Be specific about their locations (top, bottom, left, right, center)."
-        
-        try:
-            # Check if using FastVision (GGUF backend)
-            if hasattr(self.vlm, 'see'):
-                # FastVision API
-                return self.vlm.see(image, question)
-            else:
-                # Moondream 2025-06-21 API: query()
-                result = self.vlm.query(image, question)
-                return result.get("answer", str(result))
-        except Exception as e:
-            logger.error(f"Vision failed: {e}")
-            return f"[Vision error: {e}]"
-    
-    def find_element(self, image: Image.Image, element: str) -> Optional[Tuple[int, int]]:
-        """
-        Find an element's coordinates on screen.
-        
-        Args:
-            image: PIL Image of the screen
-            element: What to find (e.g., "search button")
-            
-        Returns:
-            (x, y) coordinates or None
-        """
-        if not self.vlm:
+    def _parse_json(self, text: str) -> Optional[Dict[str, Any]]:
+        """Extract JSON from response text (handles markdown code blocks)."""
+        if not text:
             return None
         
-        try:
-            # Check if using FastVision (GGUF backend)
-            if hasattr(self.vlm, 'find_element'):
-                # FastVision API
-                return self.vlm.find_element(image, element)
-            else:
-                # Moondream 2025-06-21 API: point()
-                result = self.vlm.point(image, element)
-                points = result.get("points", [])
-                
-                if points:
-                    # Get image dimensions
-                    width, height = image.size
-                    point = points[0]
-                    x = int(point.get("x", 0.5) * width)
-                    y = int(point.get("y", 0.5) * height)
-                    logger.info(f"VLM found '{element}' at ({x}, {y})")
-                    return x, y
-                
-        except Exception as e:
-            logger.error(f"Element detection failed: {e}")
+        # Try to find JSON in code blocks first
+        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+        
+        # Try to find raw JSON
+        json_match = re.search(r"\{.*\}", text, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(0))
+            except json.JSONDecodeError:
+                pass
         
         return None
     
-    def think(self, image: Image.Image, user_task: str, previous_actions: List[str] = None) -> Dict[str, Any]:
-        """
-        Main reasoning method - combines vision and language.
-        
-        Args:
-            image: PIL Image of screen
-            user_task: What the user wants to do
-            previous_actions: List of actions already taken
-            
-        Returns:
-            Dict with 'vision', 'reasoning', 'action' keys
-        """
-        result = {
-            "vision": "",
-            "reasoning": "",
-            "action": None,
-            "raw_response": ""
-        }
-        
-        # Step 1: See the screen
-        logger.info("Looking at screen...")
-        vision_description = self.see(image)
-        result["vision"] = vision_description
-        
-        # Step 2: Build context for LLM
-        context = f"""CURRENT SCREEN:
-{vision_description}
+    def log_success(self, task: str, result: Dict[str, Any]):
+        """Log successful interactions (placeholder for learning)."""
+        logger.info(f"Success: {task}")
 
-USER TASK: {user_task}"""
 
-        if previous_actions:
-            context += f"\n\nACTIONS ALREADY TAKEN:\n" + "\n".join(f"- {a}" for a in previous_actions[-5:])
-        
-        prompt = f"""<|im_start|>system
-{self.SYSTEM_PROMPT}
-<|im_end|>
-<|im_start|>user
-{context}
-<|im_end|>
-<|im_start|>assistant
-<think>
-"""
-        
-        # Step 3: Generate reasoning and action
-        logger.info("Thinking...")
-        
-        if not self.llm:
-            result["action"] = {"tool": "done", "message": "LLM not loaded"}
-            return result
-        
-        try:
-            output = self.llm(
-                prompt,
-                max_tokens=self.config.max_tokens,
-                temperature=self.config.temperature,
-                stop=["<|im_end|>", "<|im_start|>"]
-            )
-            
-            response = output["choices"][0]["text"]
-            result["raw_response"] = "<think>\n" + response
-            
-            # Extract reasoning
-            if "</think>" in response:
-                reasoning = response.split("</think>")[0].strip()
-                result["reasoning"] = reasoning
-            
-            # Extract JSON action
-            json_match = re.search(r'\{[^{}]*"tool"[^{}]*\}', response, re.DOTALL)
-            if json_match:
-                try:
-                    action = json.loads(json_match.group())
-                    result["action"] = action
-                except json.JSONDecodeError:
-                    pass
-            
-            # If action has 'target', try to resolve coordinates
-            if result["action"] and "target" in result["action"]:
-                target = result["action"]["target"]
-                coords = self.find_element(image, target)
-                if coords:
-                    result["action"]["x"] = coords[0]
-                    result["action"]["y"] = coords[1]
-                    logger.info(f"Resolved '{target}' to {coords}")
-            
-        except Exception as e:
-            logger.error(f"Thinking failed: {e}")
-            result["action"] = {"tool": "done", "message": f"Error: {e}"}
-        
-        return result
-    
-    def quick_look(self, image: Image.Image) -> str:
-        """Quick screen description for verification."""
-        if not self.vlm:
-            return "[No vision]"
-        
-        try:
-            # Check if using FastVision (GGUF backend)
-            if hasattr(self.vlm, 'see'):
-                # FastVision - use see() with short prompt
-                return self.vlm.see(image, "Briefly describe this screen.")
-            else:
-                # Moondream 2025-06-21 API: caption()
-                result = self.vlm.caption(image, length="short")
-                return result.get("caption", str(result))
-        except Exception as e:
-            return f"[Vision error: {e}]"
-
+# For backwards compatibility
+class ModelConfig:
+    """Dummy config for backwards compatibility."""
+    pass

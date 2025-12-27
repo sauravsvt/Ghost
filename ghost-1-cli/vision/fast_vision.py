@@ -51,12 +51,13 @@ class FastVision:
             model_path=model_path,
             chat_handler=self.chat_handler,
             n_ctx=2048,  # Low context for speed
-            n_gpu_layers=-1,  # Use Vulkan GPU
+            n_gpu_layers=0,   # RYZEN NATIVE: Force pure CPU (no Vulkan overhead)
+            n_threads=6,      # RYZEN NATIVE: Use 6 physical cores only
             verbose=False
         )
         
-        print("✓ FastVision Model Loaded (Vulkan Accelerated).")
-        logger.info("FastVision ready with Vulkan GPU acceleration")
+        print("✓ FastVision Model Loaded (Ryzen CPU Optimized).")
+        logger.info("FastVision ready with Ryzen CPU optimization (6 threads)")
     
     def _encode_image(self, image: Image.Image) -> str:
         """
@@ -67,7 +68,7 @@ class FastVision:
         """
         # Critical optimization: thumbnail to reduce token count
         img_resized = image.copy()
-        img_resized.thumbnail((336, 336))
+        img_resized.thumbnail((192, 192))  # Extreme CPU optimization
         
         buffered = io.BytesIO()
         img_resized.save(buffered, format="JPEG", quality=85)

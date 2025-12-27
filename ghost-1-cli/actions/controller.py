@@ -1,18 +1,16 @@
 """
-Ghost Action Controller - The Hands
+Ghost Action Controller - The Human Hands
 
-Handles all interactions with the desktop including:
-- Mouse control (click, move)
-- Keyboard control (type, hotkey)
-- Browser operations
-- File operations
-- Command execution
+SIMPLIFIED ARCHITECTURE (v3.0):
+No more custom tool scripts. Just generic mouse/keyboard controls.
+Gemini Vision predicts coordinates, we just execute.
 
-Safety features:
-- Failsafe (move to corner to stop)
-- Rate limiting
-- Path sandboxing
-- Command blocklist
+This is how humans work:
+1. Eyes see the button
+2. Brain estimates location
+3. Hands click it
+
+We don't have a "click_youtube_play_button()" function in our brain.
 """
 
 import pyautogui
@@ -20,15 +18,14 @@ import webbrowser
 import subprocess
 import time
 import logging
-import os
 from typing import Any, Dict, Optional
 from dataclasses import dataclass
 
 # Fail-Safe: Slam mouse to top-left corner to kill the agent
 pyautogui.FAILSAFE = True
-pyautogui.PAUSE = 0.1  # Small delay between actions
+pyautogui.PAUSE = 0.1
 
-logger = logging.getLogger("ActionController")
+logger = logging.getLogger("Hand")
 
 
 @dataclass
@@ -41,222 +38,182 @@ class ToolResult:
 
 class ActionController:
     """
-    The Hands. Handles all desktop interactions with human-like behavior.
-    """
+    The Human Hands - Hybrid mouse/keyboard + UI Automation.
     
-    # Dangerous commands that are blocked
-    BLOCKED_COMMANDS = [
-        "rm -rf", "rmdir /s", "del /f", "format",
-        "mkfs", "dd if=", ":(){:|:&};:", "shutdown",
-        "reboot", "halt", "poweroff"
-    ]
+    v5.0 "Blind God" Mode:
+    - ui.scan: Read UI tree (0.05s)
+    - ui.click: Click by element ID (100% accurate)
+    - ui.type: Type into element by ID
+    
+    Legacy Mode:
+    - mouse.click: Pixel coordinates (fallback)
+    """
     
     def __init__(self):
         self.screen_width, self.screen_height = pyautogui.size()
-        self.action_count = 0
-        self.last_action_time = time.time()
-        self.max_actions_per_minute = 60
+        
+        # Initialize UI Automation reader
+        try:
+            from vision.structure import UIReader
+            self.ui_reader = UIReader()
+            logger.info("UIReader initialized (Blind God mode enabled)")
+        except ImportError:
+            self.ui_reader = None
+            logger.warning("UIReader not available - falling back to mouse mode")
         
         logger.info(f"ActionController initialized (screen: {self.screen_width}x{self.screen_height})")
     
-    def _rate_limit_check(self) -> bool:
-        """Check if we're within rate limits."""
-        current_time = time.time()
-        if current_time - self.last_action_time > 60:
-            self.action_count = 0
-            self.last_action_time = current_time
+    def execute_tool(self, tool_name: str, args: Dict[str, Any], 
+                     original_prompt: str = "") -> ToolResult:
+        """
+        Execute a tool based on AI-predicted actions.
         
-        if self.action_count >= self.max_actions_per_minute:
-            logger.warning("Rate limit exceeded")
-            return False
-        
-        self.action_count += 1
-        return True
-    
-    def _validate_coordinates(self, x: int, y: int) -> bool:
-        """Check if coordinates are within screen bounds."""
-        return 0 <= x <= self.screen_width and 0 <= y <= self.screen_height
-
-    def move_mouse_human_like(self, x: int, y: int, duration: float = 0.5) -> ToolResult:
+        The AI sends ABSOLUTE pixel coordinates (1920x1080 screen).
         """
-        Moves mouse using Bezier-like distinct steps to avoid bot detection.
-        """
-        if not self._validate_coordinates(x, y):
-            return ToolResult(
-                success=False,
-                output="",
-                error=f"Coordinates ({x},{y}) out of bounds"
-            )
-        
-        logger.debug(f"Moving mouse to ({x}, {y})")
-        
-        try:
-            pyautogui.moveTo(x, y, duration=duration, tween=pyautogui.easeOutQuad)
-            return ToolResult(success=True, output=f"Moved to ({x}, {y})")
-        except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
-
-    def click(self, x: Optional[int] = None, y: Optional[int] = None) -> ToolResult:
-        """Click at current position or specified coordinates."""
-        try:
-            if x is not None and y is not None:
-                if not self._validate_coordinates(x, y):
-                    return ToolResult(
-                        success=False,
-                        output="",
-                        error=f"Coordinates ({x},{y}) out of bounds"
-                    )
-                self.move_mouse_human_like(x, y)
-            
-            pyautogui.click()
-            pos = pyautogui.position()
-            return ToolResult(success=True, output=f"Clicked at ({pos.x}, {pos.y})")
-        except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
-        
-    def type_text(self, text: str, cpm: int = 300) -> ToolResult:
-        """
-        Types text at a realistic speed.
-        
-        Args:
-            text: Text to type
-            cpm: Characters per minute (default 300 = fast human)
-        """
-        try:
-            interval = 60 / cpm
-            pyautogui.write(text, interval=interval)
-            return ToolResult(success=True, output=f"Typed {len(text)} characters")
-        except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
-    
-    def press_hotkey(self, keys: str) -> ToolResult:
-        """
-        Press a key combination like 'ctrl+c' or 'alt+tab'.
-        """
-        try:
-            key_list = [k.strip() for k in keys.split('+')]
-            pyautogui.hotkey(*key_list)
-            return ToolResult(success=True, output=f"Pressed {keys}")
-        except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
-    
-    def open_browser(self, url: str) -> ToolResult:
-        """
-        Open a URL in the default browser.
-        """
-        try:
-            if not url.startswith(('http://', 'https://')):
-                url = 'https://' + url
-            
-            webbrowser.open(url)
-            return ToolResult(success=True, output=f"Opened {url}")
-        except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
-    
-    def wait(self, seconds: float) -> ToolResult:
-        """
-        Wait for specified duration.
-        """
-        try:
-            time.sleep(seconds)
-            return ToolResult(success=True, output=f"Waited {seconds}s")
-        except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
-    
-    def run_command(self, command: str) -> ToolResult:
-        """
-        Execute a shell command with safety checks.
-        """
-        # Check blocklist
-        cmd_lower = command.lower()
-        for blocked in self.BLOCKED_COMMANDS:
-            if blocked in cmd_lower:
-                return ToolResult(
-                    success=False,
-                    output="",
-                    error=f"Blocked dangerous command: {blocked}"
-                )
-        
-        try:
-            result = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            return ToolResult(
-                success=result.returncode == 0,
-                output=result.stdout,
-                error=result.stderr if result.returncode != 0 else None
-            )
-        except subprocess.TimeoutExpired:
-            return ToolResult(success=False, output="", error="Command timed out")
-        except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
-
-    def execute_tool(self, tool_name: str, args: Dict[str, Any]) -> ToolResult:
-        """
-        The Agentic Dispatcher. Routes tool calls to appropriate handlers.
-        
-        Args:
-            tool_name: Name of the tool (e.g. 'mouse.click', 'browser.open')
-            args: Tool arguments as dictionary
-            
-        Returns:
-            ToolResult with success status and output
-        """
-        if not self._rate_limit_check():
-            return ToolResult(
-                success=False,
-                output="",
-                error="Rate limit exceeded. Slow down."
-            )
-        
         logger.info(f"Executing: {tool_name} with {args}")
         
         try:
-            if tool_name == "mouse.click":
-                x = args.get('x')
-                y = args.get('y')
-                return self.click(x, y)
+            # === UI AUTOMATION: Fast ID-based (v5.0 Blind God Mode) ===
+            if tool_name == "ui.scan":
+                if not self.ui_reader:
+                    return ToolResult(success=False, output="", error="UIReader not available")
+                tree = self.ui_reader.capture_tree()
+                return ToolResult(success=True, output=tree)
+            
+            elif tool_name == "ui.click":
+                if not self.ui_reader:
+                    return ToolResult(success=False, output="", error="UIReader not available")
+                idx = args.get("id")
+                if idx is None:
+                    return ToolResult(success=False, output="", error="Missing 'id' argument")
+                result = self.ui_reader.click_id(int(idx))
+                return ToolResult(success=True, output=result)
+            
+            elif tool_name == "ui.type":
+                if not self.ui_reader:
+                    return ToolResult(success=False, output="", error="UIReader not available")
+                idx = args.get("id")
+                text = args.get("text", "")
+                if idx is None:
+                    return ToolResult(success=False, output="", error="Missing 'id' argument")
+                result = self.ui_reader.type_in_id(int(idx), text)
+                return ToolResult(success=True, output=result)
+            
+            # === MOUSE: Direct pixel coordinates (legacy fallback) ===
+            elif tool_name == "mouse.click":
+                x = int(args.get("x", 0))
+                y = int(args.get("y", 0))
+                
+                # Clamp to screen bounds
+                x = max(0, min(x, self.screen_width))
+                y = max(0, min(y, self.screen_height))
+                
+                # Move like a human (smooth motion)
+                pyautogui.moveTo(x, y, duration=0.3)
+                time.sleep(0.1)
+                pyautogui.click()
+                
+                return ToolResult(success=True, output=f"Clicked at ({x}, {y})")
+                    
             
             elif tool_name == "mouse.move":
-                return self.move_mouse_human_like(args['x'], args['y'])
+                x = max(0, min(int(args.get("x", 0)), self.screen_width))
+                y = max(0, min(int(args.get("y", 0)), self.screen_height))
+                pyautogui.moveTo(x, y, duration=0.3)
+                return ToolResult(success=True, output=f"Moved to ({x}, {y})")
             
+            elif tool_name == "mouse.double_click":
+                x = max(0, min(int(args.get("x", 0)), self.screen_width))
+                y = max(0, min(int(args.get("y", 0)), self.screen_height))
+                pyautogui.moveTo(x, y, duration=0.3)
+                pyautogui.doubleClick()
+                return ToolResult(success=True, output=f"Double-clicked at ({x}, {y})")
+            
+            elif tool_name == "mouse.scroll":
+                direction = args.get("direction", "down")
+                amount = args.get("amount", 3)
+                clicks = amount if direction == "down" else -amount
+                pyautogui.scroll(clicks)
+                return ToolResult(success=True, output=f"Scrolled {direction} by {amount}")
+            
+            # === KEYBOARD: Direct input ===
             elif tool_name == "keyboard.type":
-                return self.type_text(args['text'])
+                text = args.get("text", "")
+                pyautogui.write(text, interval=0.03)
+                return ToolResult(success=True, output=f"Typed: {text}")
+            
+            elif tool_name == "keyboard.type_and_enter":
+                text = args.get("text", "")
+                pyautogui.write(text, interval=0.03)
+                pyautogui.press("enter")
+                return ToolResult(success=True, output=f"Typed and entered: {text}")
             
             elif tool_name == "keyboard.hotkey":
-                return self.press_hotkey(args['keys'])
+                keys = args.get("keys", "")
+                key_list = [k.strip() for k in keys.split("+")]
+                pyautogui.hotkey(*key_list)
+                return ToolResult(success=True, output=f"Pressed: {keys}")
             
+            elif tool_name == "keyboard.press":
+                key = args.get("key", "enter")
+                pyautogui.press(key)
+                return ToolResult(success=True, output=f"Pressed: {key}")
+            
+            # === BROWSER: Just for starting sessions ===
             elif tool_name == "browser.open":
-                return self.open_browser(args['url'])
+                url = args.get("url", "")
+                if not url.startswith(("http://", "https://")):
+                    url = "https://" + url
+                webbrowser.open(url)
+                return ToolResult(success=True, output=f"Opened browser: {url}")
             
+            # === WAIT: For page loads ===
             elif tool_name == "wait":
-                return self.wait(float(args.get('seconds', 1)))
+                seconds = float(args.get("seconds", 1))
+                time.sleep(seconds)
+                return ToolResult(success=True, output=f"Waited {seconds}s")
             
-            elif tool_name == "os.command":
-                return self.run_command(args['command'])
+            # === CODE EXECUTION: For complex tasks ===
+            elif tool_name == "python.exec":
+                code = args.get("code", "")
+                if not code:
+                    return ToolResult(success=False, output="", error="No code provided")
+                
+                # Security: Block dangerous operations
+                dangerous = ["os.system", "subprocess", "rmtree", "remove(", "unlink("]
+                for pattern in dangerous:
+                    if pattern in code:
+                        return ToolResult(success=False, output="", 
+                                         error=f"Blocked: {pattern}")
+                
+                try:
+                    import io
+                    import sys
+                    old_stdout = sys.stdout
+                    sys.stdout = io.StringIO()
+                    exec(code, {"__builtins__": __builtins__})
+                    output = sys.stdout.getvalue()
+                    sys.stdout = old_stdout
+                    return ToolResult(success=True, output=output or "Executed")
+                except Exception as e:
+                    return ToolResult(success=False, output="", error=str(e))
             
+            # === DONE: Task completion ===
             elif tool_name == "done":
-                message = args.get('message', 'Task completed')
-                logger.info(f"Task completed: {message}")
+                message = args.get("message", "Task completed")
                 return ToolResult(success=True, output=message)
             
             else:
-                return ToolResult(
-                    success=False,
-                    output="",
-                    error=f"Unknown tool: {tool_name}"
-                )
+                return ToolResult(success=False, output="", error=f"Unknown tool: {tool_name}")
                 
-        except KeyError as e:
-            return ToolResult(
-                success=False,
-                output="",
-                error=f"Missing required argument: {e}"
-            )
         except Exception as e:
-            logger.error(f"Tool execution failed: {e}")
+            logger.error(f"Execution failed: {e}")
             return ToolResult(success=False, output="", error=str(e))
+    
+    # Backwards compatibility alias
+    def execute(self, action_data: Dict[str, Any]) -> str:
+        """Legacy execute method for simpler interface."""
+        tool = action_data.get("tool", "")
+        args = action_data.get("args", {})
+        result = self.execute_tool(tool, args)
+        return result.output if result.success else f"Error: {result.error}"
