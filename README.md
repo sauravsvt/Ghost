@@ -209,7 +209,7 @@ self.model_state = load_bimamba_quantized(self.config.model_path)
 
 ## 📜 License
 
-MIT License - Use freely, modify as needed.
+COPYRIGHT (c) 2025 - SAURAV SHRIWASTAV
 
 ---
 
