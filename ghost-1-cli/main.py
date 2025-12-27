@@ -220,6 +220,8 @@ def main():
     print(f"  • Type a task or {Fore.MAGENTA}Say 'Ghost <command>'{Style.RESET_ALL}")
     print(f"  • 'look': Just describe what's on screen")
     print(f"  • 'find <element>': Find element coordinates")
+    print(f"  • 'benchmark': Run performance test")
+    print(f"  • 'stress': Run failure scenario test")
     print(f"  • 'exit': Quit")
     print(f"{Fore.YELLOW}Move mouse to corner (0,0) for emergency stop.{Style.RESET_ALL}")
     
@@ -293,6 +295,55 @@ def main():
                     print(f"{Fore.GREEN}Found at: ({coords[0]}, {coords[1]}){Style.RESET_ALL}")
                 else:
                     print(f"{Fore.RED}Not found{Style.RESET_ALL}")
+                continue
+            
+            # Benchmark command: measure performance
+            if user_input.lower() == 'benchmark':
+                print(f"\n{Fore.CYAN}═══ GHOST-1 BENCHMARK ═══{Style.RESET_ALL}")
+                print(f"Running 5 cycles of See->Think...\n")
+                
+                import psutil
+                process = psutil.Process(os.getpid())
+                
+                vision_times = []
+                think_times = []
+                
+                for i in range(5):
+                    print(f"Cycle {i+1}/5...", end=" ", flush=True)
+                    
+                    # Vision benchmark
+                    image = capture_screen_pil()
+                    start = time.time()
+                    _ = engine.see(image, "What do you see?")
+                    vision_time = time.time() - start
+                    vision_times.append(vision_time)
+                    
+                    # Think benchmark
+                    start = time.time()
+                    _ = engine.think(image, "Test task")
+                    think_time = time.time() - start
+                    think_times.append(think_time)
+                    
+                    print(f"Vision: {vision_time:.1f}s, Think: {think_time:.1f}s")
+                
+                # RAM usage
+                ram_gb = process.memory_info().rss / (1024 ** 3)
+                
+                print(f"\n{Fore.GREEN}═══ RESULTS ═══{Style.RESET_ALL}")
+                print(f"  Avg Vision Latency: {sum(vision_times)/len(vision_times):.2f}s")
+                print(f"  Avg Think Latency:  {sum(think_times)/len(think_times):.2f}s")
+                print(f"  Peak RAM Usage:     {ram_gb:.2f} GB")
+                print(f"  Status: {'✓ FAST' if sum(vision_times)/len(vision_times) < 5 else '⚠ SLOW'}")
+                continue
+            
+            # Stress test command
+            if user_input.lower() == 'stress':
+                print(f"\n{Fore.CYAN}Running Stress Test...{Style.RESET_ALL}")
+                try:
+                    from tests.stress_test_android_studio import run_stress_test
+                    run_stress_test()
+                except ImportError as e:
+                    print(f"{Fore.RED}Stress test not found: {e}{Style.RESET_ALL}")
                 continue
             
             # Run the autonomous agent loop

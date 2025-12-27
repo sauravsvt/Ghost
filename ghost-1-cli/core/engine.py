@@ -27,9 +27,9 @@ logger = logging.getLogger("GhostEngine")
 class ModelConfig:
     """Configuration for Ghost inference engine."""
     
-    # Text LLM (for reasoning/action generation)
-    llm_model_repo: str = "Qwen/Qwen1.5-1.8B-Chat-GGUF"
-    llm_model_file: str = "qwen1_5-1_8b-chat-q4_k_m.gguf"
+    # Text LLM (for reasoning/action generation) - Speed optimized 0.5B
+    llm_model_repo: str = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+    llm_model_file: str = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
     
     # Vision LLM (for screen understanding)
     vlm_model: str = "vikhyatk/moondream2"
@@ -168,11 +168,10 @@ RULES:
         """Load Vision-Language Model (FastVision GGUF preferred)."""
         # Try FastVision (GGUF via llama.cpp) first
         try:
-            from vision.fast_vision import FastVision
+            from vision.fast_vision import load_fast_vision
             logger.info("Initializing FastVision (Optimized GGUF)...")
-            self.vlm = FastVision(use_gpu=self.config.use_gpu)
-            self.vlm.load()
-            if self.vlm.model:
+            self.vlm = load_fast_vision()
+            if self.vlm:
                 logger.info("FastVision loaded successfully.")
                 return
         except Exception as e:
@@ -257,9 +256,14 @@ RULES:
             question = "Describe this computer screen. What application is open? What buttons, text fields, and clickable elements do you see? Be specific about their locations (top, bottom, left, right, center)."
         
         try:
-            # Moondream 2025-06-21 API: query()
-            result = self.vlm.query(image, question)
-            return result.get("answer", str(result))
+            # Check if using FastVision (GGUF backend)
+            if hasattr(self.vlm, 'see'):
+                # FastVision API
+                return self.vlm.see(image, question)
+            else:
+                # Moondream 2025-06-21 API: query()
+                result = self.vlm.query(image, question)
+                return result.get("answer", str(result))
         except Exception as e:
             logger.error(f"Vision failed: {e}")
             return f"[Vision error: {e}]"
@@ -279,18 +283,23 @@ RULES:
             return None
         
         try:
-            # Moondream 2025-06-21 API: point()
-            result = self.vlm.point(image, element)
-            points = result.get("points", [])
-            
-            if points:
-                # Get image dimensions
-                width, height = image.size
-                point = points[0]
-                x = int(point.get("x", 0.5) * width)
-                y = int(point.get("y", 0.5) * height)
-                logger.info(f"VLM found '{element}' at ({x}, {y})")
-                return x, y
+            # Check if using FastVision (GGUF backend)
+            if hasattr(self.vlm, 'find_element'):
+                # FastVision API
+                return self.vlm.find_element(image, element)
+            else:
+                # Moondream 2025-06-21 API: point()
+                result = self.vlm.point(image, element)
+                points = result.get("points", [])
+                
+                if points:
+                    # Get image dimensions
+                    width, height = image.size
+                    point = points[0]
+                    x = int(point.get("x", 0.5) * width)
+                    y = int(point.get("y", 0.5) * height)
+                    logger.info(f"VLM found '{element}' at ({x}, {y})")
+                    return x, y
                 
         except Exception as e:
             logger.error(f"Element detection failed: {e}")
@@ -393,9 +402,14 @@ USER TASK: {user_task}"""
             return "[No vision]"
         
         try:
-            # Moondream 2025-06-21 API: caption()
-            result = self.vlm.caption(image, length="short")
-            return result.get("caption", str(result))
+            # Check if using FastVision (GGUF backend)
+            if hasattr(self.vlm, 'see'):
+                # FastVision - use see() with short prompt
+                return self.vlm.see(image, "Briefly describe this screen.")
+            else:
+                # Moondream 2025-06-21 API: caption()
+                result = self.vlm.caption(image, length="short")
+                return result.get("caption", str(result))
         except Exception as e:
             return f"[Vision error: {e}]"
 
