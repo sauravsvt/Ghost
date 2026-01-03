@@ -1,13 +1,13 @@
 # Ghost-1: Terminal Agent
 
-> **Bi-Mamba 1.58-bit Brain | Spatial-Mamba Vision | CALM Decoding**
+> **Local-First | Structure-Based UI | Qwen 2.5 0.5B-2B**
 
 A fully local, privacy-first autonomous desktop agent that runs on CPU. No cloud, no API calls, no data leaves your machine.
 
 ```
 ╔════════════════════════════════════════════╗
-║      GHOST-1: TERMINAL AGENT (v1.0)        ║
-║   Bi-Mamba 1.58-bit | Spatial-Mamba Vision ║
+║    GHOST-1: LOCAL STRUCTURE (v5.0)         ║
+║   Qwen 2.5 | pywinauto | Cheat Sheet AI   ║
 ╚════════════════════════════════════════════╝
 ```
 
@@ -20,192 +20,174 @@ A fully local, privacy-first autonomous desktop agent that runs on CPU. No cloud
 │      BRAIN      │      EYES       │         HANDS           │
 │   (core/)       │   (vision/)     │       (actions/)        │
 ├─────────────────┼─────────────────┼─────────────────────────┤
-│ • Bi-Mamba      │ • MSS Capture   │ • PyAutoGUI Controller  │
-│   1.58-bit      │ • Spatial-Mamba │ • Human-like Movement   │
-│ • CALM Decoder  │   Linearization │ • File/CMD Tools        │
-│ • GRPO Trainer  │ • Grid System   │ • Safety Sandboxing     │
+│ • Qwen 2.5      │ • UI Automation │ • PyAutoGUI Actions     │
+│   0.5B-2B       │   Tree (UIA)    │ • App Launching         │
+│ • llama-cpp     │ • pywinauto     │ • Scroll Support        │
+│ • Few-Shot      │ • ID-Based      │ • Loop Detection        │
+│   Learning      │   Clicking      │ • Auto-Recovery         │
 └─────────────────┴─────────────────┴─────────────────────────┘
 ```
 
 ## 🚀 Quick Start
 
-```bash
-# Clone/navigate to project
-cd ghost-1-cli
-
-# Create virtual environment
-python -m venv .venv
-
-# Activate (Windows)
+```powershell
+# Activate virtual environment (Windows)
 .\.venv\Scripts\Activate.ps1
-
-# Activate (Linux/Mac)
-source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
 
 # Run Ghost-1
 python main.py
+
+# Run autonomous training
+python gym.py
 ```
+
+## ✨ Features
+
+### 🎯 Capabilities
+- ✅ **Click** any UI element by ID (blind clicking)
+- ✅ **Type** text into fields  
+- ✅ **Scroll** up/down in windows
+- ✅ **Launch** apps (Calculator, Notepad, Chrome, etc.)
+- ✅ **Learn** from demonstrations (Teacher mode)
+- ✅ **Train** autonomously (Gym mode)
+
+### 🛡️ Safety & Intelligence
+- **Infinite Loop Detection** - Stops if same action repeats 3+ times
+- **Screen Change Verification** - Ensures actions have effect
+- **Stuck Detection** - Auto-stops if no progress for 3 steps  
+- **Automatic Recovery** - Tries scrolling when stuck
+- **Configurable Limits** - Max steps, timeouts, etc.
+
+### 📊 Logging & Config
+- **Session-Based Logs** - Timestamped log files per run
+- **JSON Logging** - Optional structured logs for parsing
+- **Log Rotation** - 10MB max, 5 backups
+- **YAML Config** - Centralized settings in `config.yaml`
+- **Environment Variables** - Secrets in `.env` file
+
+## 📚 Documentation
+
+- **[USAGE.md](USAGE.md)** - Complete usage guide with examples and troubleshooting
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design and technical details
+- **[todo.md](todo.md)** - Planned features and improvements
+
+## 🎓 Training Modes
+
+### AI Mode (Default)
+Let the agent decide actions autonomously:
+```powershell
+python main.py
+```
+
+### Teacher Mode
+Demonstrate actions for training data:
+```powershell
+python main.py --teacher
+```
+
+### Gym Mode
+Autonomous exploration and data generation:
+```powershell
+python gym.py
+```
+
+## 🔧 CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--verbose` | Enable DEBUG logging |
+| `--log-level LEVEL` | Set log level (DEBUG/INFO/WARNING/ERROR) |
+| `--json-logs` | Enable JSON formatted logs |
+| `--max-steps N` | Maximum steps per task |
+| `--version` | Show version |
+| `--teacher` | Run in Teacher Mode |
+| `--model PATH` | Path to .gguf model |
+
+## 🧠 How It Works
+
+### 1. Structure-Based UI Reading
+Uses **pywinauto** with UIA (UI Automation) backend to extract accessibility tree:
+```
+Window: Calculator
+[24] Button: 'Five'
+[25] Button: 'Six'
+[26] Button: 'Plus'
+```
+
+### 2. Local LLM Decision Making
+**Qwen 2.5** (0.5B-2B params) via llama-cpp-python:
+- Processes UI tree + user goal
+- Outputs JSON action
+- Uses "Cheat Sheet" (last 5 examples from dataset.jsonl)
+- CPU-only inference (<2s per decision)
+
+### 3. Action Execution
+Maps LLM output to system actions:
+```json
+{"action": "click", "id": 24}
+→ UIReader.click_id(24)
+→ pywinauto clicks element
+```
+
+### 4. Safety Loop
+- Tracks action history
+- Detects loops (same action 3x)
+- Verifies screen changes
+- Auto-recovers with scroll
 
 ## 📁 Project Structure
 
 ```
-ghost-1-cli/
+Ghost-1/
+├── main.py              # Entry point
+├── gym.py               # Autonomous training
+├── config.yaml          # Configuration
+├── dataset.jsonl        # Training data
 │
-├── core/                    # The Brain
-│   ├── engine.py           # Bi-Mamba 1.58-bit inference wrapper
-│   ├── calm_decoder.py     # Speculative multi-token decoding
-│   └── trainer.py          # GRPO self-evolution loop
+├── core/
+│   ├── engine.py        # LLM inference
+│   └── logging_utils.py # Logging system
 │
-├── vision/                  # The Eyes
-│   ├── perceptor.py        # MSS screen capture + preprocessing
-│   └── grid.py             # Coordinate translation system
+├── vision/
+│   └── structure.py     # UI tree reader
 │
-├── actions/                 # The Hands
-│   ├── controller.py       # PyAutoGUI with human-like movement
-│   └── tools.py            # File ops + command execution
+├── actions/
+│   └── controller.py    # Action execution
 │
-├── config/                  # Configuration
-│   ├── settings.py         # Constants and hyperparameters
-│   └── prompts.py          # System prompts for reasoning
+├── config/
+│   └── manager.py       # Config loader
 │
-├── logs/                    # Runtime logs
-├── main.py                  # CLI entry point
-├── requirements.txt         # Dependencies
-└── setup.py                 # Package installation
+└── logs/                # Session logs
 ```
 
-## 🧠 How It Works
+## 🔒 Privacy Guarantee
 
-### 1. Observe → Think → Act Loop
-
-```
-User Input
-    ↓
-┌─────────────────────────────────────┐
-│  OBSERVE: Capture screen via MSS    │
-│  ↓                                  │
-│  THINK: Generate <think> trace      │
-│  ↓                                  │
-│  ACT: Execute JSON tool call        │
-│  ↓                                  │
-│  VERIFY: Check result, retry if     │
-│          needed (self-correction)   │
-└─────────────────────────────────────┘
-    ↓
-Loop until task complete
-```
-
-### 2. Reasoning Format
-
-The model outputs DeepSeek-R1 style reasoning:
-
-```xml
-<think>
-User wants to open Chrome and search for "Python tutorials".
-1. Observation: Desktop visible. Chrome icon at (45, 890).
-2. Plan: Click Chrome → Wait for load → Type in search bar.
-3. Constraint: Ensure Chrome is not already maximized.
-</think>
-{
-    "tool": "mouse.click",
-    "x": 45,
-    "y": 890
-}
-```
-
-### 3. Available Tools
-
-| Tool | Arguments | Description |
-|------|-----------|-------------|
-| `mouse.click` | `x`, `y` | Click at coordinates |
-| `mouse.move` | `x`, `y` | Move mouse (no click) |
-| `keyboard.type` | `text` | Type text naturally |
-| `keyboard.hotkey` | `keys` | Press key combination |
-| `browser.open` | `url` | Open URL in browser |
-| `file.read` | `path` | Read file contents |
-| `file.write` | `path`, `content` | Write to file |
-| `os.command` | `command` | Execute shell command |
-| `wait` | `seconds` | Pause execution |
-| `done` | `message` | Signal task completion |
-
-## 🛡️ Safety Features
-
-1. **Failsafe**: Move mouse to top-left corner (0,0) to instantly stop the agent
-2. **Path Sandboxing**: File operations restricted to workspace directory
-3. **Command Blocklist**: Dangerous commands (`rm -rf`, `format`, etc.) are blocked
-4. **Rate Limiting**: Maximum 60 actions per minute
-5. **Confirmation Required**: Delete operations need explicit confirmation
-
-## ⚙️ Configuration
-
-Edit `config/settings.py` to customize:
-
-```python
-# Model settings
-MODEL.temperature = 0.2        # Lower = more deterministic
-MODEL.context_length = 1_000_000  # Mamba handles infinite context
-
-# Safety settings
-SAFETY.failsafe_enabled = True
-SAFETY.max_actions_per_minute = 60
-
-# Training (disabled by default)
-TRAINING.enabled = False
-TRAINING.learning_rate = 1e-5
-```
-
-## 🔧 Extending Ghost-1
-
-### Adding New Tools
-
-Edit `actions/tools.py`:
-
-```python
-class CustomTools:
-    def my_new_tool(self, args: dict) -> ToolResult:
-        # Your implementation
-        return ToolResult(success=True, output="Done!")
-```
-
-Then register in `actions/controller.py`:
-
-```python
-elif tool_name == "my.new.tool":
-    self.custom_tools.my_new_tool(args)
-```
-
-### Swapping in Real Model
-
-Replace the simulation in `core/engine.py`:
-
-```python
-# From:
-self.model_state = {"status": "loaded", "quantization": "ternary_1.58"}
-
-# To:
-from ghost_cpp import load_bimamba_quantized
-self.model_state = load_bimamba_quantized(self.config.model_path)
-```
+- ✅ 100% local execution
+- ✅ No API calls
+- ✅ No telemetry
+- ✅ All data on your machine
+- ✅ GDPR compliant
 
 ## 📊 Performance
 
 | Metric | Value |
 |--------|-------|
-| RAM Usage | ~1.2GB (model) + ~200MB (runtime) |
-| Inference | CPU-only, optimized for AMD Ryzen |
-| Latency | ~100ms per action (simulated) |
-| Context | 1M tokens (Mamba linear complexity) |
+| RAM Usage | 2-4GB |
+| Decision Time | 0.5-2s |
+| Model Size | 500MB-2GB (GGUF) |
+| Platform | Windows (CPU-only) |
 
-## 🔒 Privacy Guarantee
+## 🚧 Recent Improvements
 
-- ✅ 100% local execution
-- ✅ No API calls to external services
-- ✅ No telemetry or analytics
-- ✅ All data stays on your machine
-- ✅ GDPR compliant by design
+- ✅ **Scroll Support** - Navigate long pages
+- ✅ **Loop Detection** - No more infinite loops
+- ✅ **Screen Verification** - Ensures progress
+- ✅ **Better Logging** - Session tracking & rotation
+- ✅ **Config System** - YAML + .env management
+- ✅ **CLI Flags** - Verbose, log levels, etc.
 
 ## 📜 License
 
@@ -213,4 +195,4 @@ COPYRIGHT (c) 2025 - SAURAV SHRIWASTAV
 
 ---
 
-**Built for the "Late 2025" architecture spec: Bi-Mamba 1.58-bit + Spatial-Mamba + CALM**
+**Ghost-1 v5.0** - Structure/Local Architecture

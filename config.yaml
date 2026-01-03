@@ -1,0 +1,72 @@
+# Ghost-1 Configuration
+
+# Model Settings
+model:
+  path: "models/qwen1_5-1_8b-chat-q4_k_m.gguf"
+  n_ctx: 8192  # Increased from 4096 for complex UIs
+  n_threads: 4
+  temperature: 0.2
+  max_tokens: 256
+  stop_tokens:
+    - "\n"
+    - "```"
+
+# Agent Settings
+agent:
+  max_steps: 20
+  action_delay: 0.5  # seconds to wait after each action
+  stuck_threshold: 3  # steps with no progress before stopping
+  loop_detection_threshold: 3  # same action repeated N times = loop
+
+# UI Reader Settings
+ui_reader:
+  max_elements: 100  # maximum elements to show in tree
+  interesting_types:
+    - "Button"
+    - "Edit"
+    - "ListItem"
+    - "MenuItem"
+    - "TabItem"
+    - "CheckBox"
+    - "RadioButton"
+    - "ComboBox"
+    - "Hyperlink"
+    - "Document"
+
+# Gym (Training) Settings
+gym:
+  safe_apps:
+    - "Notepad"
+    - "Calculator"
+    - "Chrome"
+    - "Edge"
+    - "Explorer"
+    - "Paint"
+  safe_element_types:
+    - "Button"
+    - "MenuItem"
+    - "TabItem"
+    - "ListItem"
+  dangerous_keywords:
+    - "delete"
+    - "remove"
+    - "format"
+    - "erase"
+    - "shutdown"
+    - "restart"
+  max_training_steps: 500
+  action_delay: 1.5
+  startup_countdown: 3
+
+# Paths
+paths:
+  dataset: "dataset.jsonl"
+  logs_dir: "logs"
+  models_dir: "models"
+
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(levelname)s - %(message)s"
+  file_rotation: true
+  max_log_files: 10

@@ -1,0 +1,3 @@
+2026-01-03 18:25:09,025 - root - INFO - logging_utils:setup_logging:98 - Logging initialized. Session: 20260103_182509, Level: INFO, File: logs\ghost_20260103_182509.log
+2026-01-03 18:25:09,027 - Main - INFO - main:main:50 - Ghost-1 starting...
+2026-01-03 18:25:09,029 - Brain - INFO - engine:__init__:76 - Loading local brain: C:\Users\Saurav\Documents\Personal\Calm\models\qwen1_5-1_8b-chat-q4_k_m.gguf

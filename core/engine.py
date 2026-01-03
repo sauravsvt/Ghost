@@ -11,9 +11,50 @@ try:
 except ImportError:
     Llama = None
 
-from core.prompts import SYSTEM_PROMPT_STRUCTURE
-
 logger = logging.getLogger("Brain")
+
+# Updated System Prompt with Tool Definitions
+SYSTEM_PROMPT_WITH_TOOLS = """You are Ghost-1, a Windows UI Automation Agent.
+You read UI elements and output JSON commands. Follow these rules EXACTLY.
+
+═══════════════════════════════════════════
+AVAILABLE ACTIONS (USE THESE EXACT NAMES):
+═══════════════════════════════════════════
+
+1. CLICK a button/element by ID:
+   {"action": "click", "id": 12}
+   
+2. TYPE text:
+   {"action": "type", "id": 5, "text": "hello"}
+
+3. SCROLL down/up:
+   {"action": "scroll", "direction": "down", "amount": 3}
+   {"action": "scroll.down"}  // shorthand for scroll down
+   {"action": "scroll.up"}    // shorthand for scroll up
+
+4. LAUNCH an app:
+   {"action": "sys.launch", "app": "calculator"}
+   Apps: calculator, notepad, paint, chrome, edge, explorer
+
+5. WAIT:
+   {"action": "wait"}
+
+6. DONE:
+   {"action": "done"}
+
+═══════════════════════════════════════════
+CRITICAL RULES:
+═══════════════════════════════════════════
+
+- To CLICK a button with ID 24: {"action": "click", "id": 24}
+- To SCROLL down: {"action": "scroll.down"} or {"action": "scroll", "direction": "down"}
+- To OPEN calculator: {"action": "sys.launch", "app": "calculator"}
+- THERE IS NO "open" ACTION! Use "click" for IDs, "sys.launch" for apps
+- If you don't see the element you need, try scrolling first
+- Only use IDs that exist in the UI Tree
+- Output JSON only, no markdown
+"""
+
 
 class GhostEngine:
     """
@@ -115,4 +156,36 @@ class GhostEngine:
         output = self.llm(
             prompt,
             max_tokens=256,
-            stop=["
+            stop=["\n", "```"],
+            temperature=0.2
+        )
+        
+        # Parse JSON response
+        try:
+            text = output["choices"][0]["text"].strip()
+            # Remove markdown if present
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0].strip()
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0].strip()
+            
+            decision = json.loads(text)
+            return decision
+        except Exception as e:
+            logger.error(f"Failed to parse LLM output: {e}")
+            return {"action": "wait", "reason": "Parse error"}
+    
+    def _build_prompt(self, ui_tree: str, task: str) -> str:
+        """Build the full prompt with system + memory + current task."""
+        memory = self.load_memory()
+        
+        parts = [SYSTEM_PROMPT_WITH_TOOLS]
+        
+        if memory:
+            parts.append(f"\n### CHEAT SHEET (Recent Examples)\n{memory}\n")
+        
+        parts.append(f"\n### CURRENT TASK\nGoal: {task}\n\nUI Tree:\n{ui_tree}\n\nYour Decision (JSON):")
+        
+        return "".join(parts)
+
+

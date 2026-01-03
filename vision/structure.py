@@ -21,65 +21,53 @@ class UIReader:
         
     def capture_tree(self) -> str:
         """
-        Scans the active window and returns a numbered list of interactable elements.
-        Format:
-        [1] Button: 'Search'
-        [2] Edit: 'Type here...'
+        Capture UI tree with aggressive filtering to save context.
+        Max 60 elements, skip containers, truncate long names.
         """
         try:
-            # 1. Get Active Window
-            desktop = Desktop(backend="uia")
-            window = desktop.window(active_only=True)
+            app = Desktop(backend="uia").window(active_only=True)
+            if not app.exists():
+                return "No active window."
             
-            if not window.exists():
-                return "No active window found."
+            window_title = app.window_text() or "Unknown"
+            elements = [f"Window: {window_title}"]
+            self.element_map = {}
+            idx = 1
             
-            window_title = window.window_text()
+            # Get all controls
+            controls = app.descendants()
             
-            # 2. Walk the Tree
-            elements = []
-            self.element_map.clear()
-            
-            # Filter for interactable types
-            interesting_types = [
-                "Button", "Edit", "ListItem", "MenuItem", 
-                "TabItem", "CheckBox", "RadioButton", 
-                "ComboBox", "Hyperlink", "Document"
-            ]
-            
-            # Get all descendants (flattened)
-            # We filter by control_type and visibility
-            descendants = window.descendants()
-            
-            current_id = 1
-            tree_lines = [f"Window: {window_title}"]
-            
-            for child in descendants:
-                if not child.is_visible():
-                    continue
-                    
-                c_type = child.friendly_class_name()
-                c_title = child.window_text()
-                
-                # Filter noise
-                if c_type not in interesting_types:
-                    continue
-                    
-                # Store mapped element
-                self.element_map[current_id] = child
-                
-                # Format: [ID] Type: 'Name'
-                line = f"[{current_id}] {c_type}: '{c_title}'"
-                tree_lines.append(line)
-                
-                current_id += 1
-                
-                # Safety cap to prevent token explosion
-                if current_id > 100:
-                    tree_lines.append("... (more elements truncated)")
+            for item in controls:
+                # STOP if we have too many (Save Tokens!)
+                if idx > 60:
                     break
+                
+                try:
+                    name = item.window_text()
+                    control_type = item.friendly_class_name()
+                    
+                    # Skip boring containers (50% token reduction!)
+                    if control_type in ["Pane", "Group", "Window", "Image"]:
+                        continue
+                    
+                    # Skip empty text unless it's an Edit box
+                    if not name and control_type != "Edit":
+                        continue
+                    
+                    # Truncate long names (e.g. browser tab titles)
+                    if len(name) > 50:
+                        name = name[:47] + "..."
+                    
+                    if item.is_visible():
+                        label = f"[{idx}] {control_type}: '{name}'"
+                        elements.append(label)
+                        self.element_map[idx] = item
+                        idx += 1
+                        
+                except Exception:
+                    continue
             
-            self.last_tree = "\n".join(tree_lines)
+            self.last_tree = "\n".join(elements)
             return self.last_tree
             
         except Exception as e:
@@ -117,3 +105,7 @@ class UIReader:
             return f"Typed '{text}' into [{element_id}]"
         except Exception as e:
             return f"Failed to type: {e}"
+    
+    def execute_id(self, element_id: int) -> str:
+        """Alias for click_id for backward compatibility."""
+        return self.click_id(element_id)

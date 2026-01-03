@@ -1,0 +1,5 @@
+2026-01-03 18:03:02,202 - root - INFO - logging_utils:setup_logging:98 - Logging initialized. Session: 20260103_180302, Level: INFO, File: logs\ghost_20260103_180302.log
+2026-01-03 18:03:02,203 - Main - INFO - main:main:50 - Ghost-1 starting...
+2026-01-03 18:03:02,206 - Brain - INFO - engine:__init__:76 - Loading local brain: C:\Users\Saurav\Documents\Personal\Calm\models\qwen1_5-1_8b-chat-q4_k_m.gguf
+2026-01-03 18:03:31,648 - Hands - INFO - controller:execute:40 - PATCH: Redirected 'open' with ID to 'click'
+2026-01-03 18:03:31,648 - Hands - INFO - controller:execute:47 - Executing: click -> {'action': 'open', 'id': 'Calm', 'reason': 'Open Calm'}
