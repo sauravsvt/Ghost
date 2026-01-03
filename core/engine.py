@@ -42,6 +42,14 @@ AVAILABLE ACTIONS (USE THESE EXACT NAMES):
 6. DONE:
    {"action": "done"}
 
+7. MACRO ACTIONS (CALM MODE):
+   You can output a LIST of actions to execute in sequence:
+   [
+     {"action": "sys.launch", "app": "notepad"},
+     {"action": "wait"},
+     {"action": "type", "text": "hello"}
+   ]
+
 ═══════════════════════════════════════════
 CRITICAL RULES:
 ═══════════════════════════════════════════
@@ -53,6 +61,7 @@ CRITICAL RULES:
 - If you don't see the element you need, try scrolling first
 - Only use IDs that exist in the UI Tree
 - Output JSON only, no markdown
+- Use MACRO ACTIONS (List) for multiple steps (e.g. Launch -> Wait -> Type)
 """
 
 
@@ -145,36 +154,99 @@ class GhostEngine:
             return "\n\n".join(recent)
         return ""
 
-    def think(self, ui_tree: str, task: str) -> Dict[str, Any]:
+    
+    def think(self, ui_tree: str, task: str) -> Any:
         """
-        Decision loop with Cheat Sheet Memory:
-        UI Tree + Task + Past Examples -> Action JSON
+        Decision loop with TRM-Inspired Recursive Reasoning.
         """
+        return self._think_recursively(ui_tree, task, depth=1)
+
+    def _think_recursively(self, ui_tree: str, task: str, depth: int = 1) -> Any:
+        """
+        Ghost-TRM: Recurse on thoughts to refine action.
+        Z_t+1 = f(Z_t)
+        """
+        # Step 1: Initial Thought (Z_0)
         prompt = self._build_prompt(ui_tree, task)
+        prompt += "\n\nInitial Thought (Draft 1):"
         
-        # Generation
-        output = self.llm(
-            prompt,
-            max_tokens=256,
-            stop=["\n", "```"],
-            temperature=0.2
-        )
+        # Draft 1
+        output_1 = self.llm(prompt, max_tokens=256, stop=["\n", "```"], temperature=0.3)
+        draft_1 = output_1["choices"][0]["text"].strip()
         
-        # Parse JSON response
+        if depth == 0:
+            return self._parse_json(draft_1)
+
+        # Step 2: Recursion / Critique (Z_1)
+        # We feed draft 1 back and ask for refinement
+        prompt += f" {draft_1}\n\nReview the above. If correct, repeat it. If wrong, correct it.\nJSON ONLY:"
+        
+        output_2 = self.llm(prompt, max_tokens=256, stop=["\n", "```"], temperature=0.1)
+        final_response = output_2["choices"][0]["text"].strip()
+        
+        logger.info(f"🧠 TRM: {draft_1} -> {final_response}")
+        
+        # Robust Parsing with Fallback to System 1
+        result = self._parse_json(final_response)
+        if result.get("action") == "wait" and result.get("reason") == "Parse error":
+             logger.warning("TRM Refinement failed (Parse Error). Falling back to Draft 1 (System 1).")
+             return self._parse_json(draft_1)
+             
+        return result
+
+    def _parse_json(self, text: str) -> Any:
+        """Robust JSON parsing for Dict or List, with Regex fallback."""
         try:
-            text = output["choices"][0]["text"].strip()
-            # Remove markdown if present
+            # 1. Clean Markdown
             if "```json" in text:
                 text = text.split("```json")[1].split("```")[0].strip()
             elif "```" in text:
                 text = text.split("```")[1].split("```")[0].strip()
             
-            decision = json.loads(text)
-            return decision
-        except Exception as e:
-            logger.error(f"Failed to parse LLM output: {e}")
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # 2. Regex Fallback (Find first outer valid JSON object/list)
+            import re
+            try:
+                # Look for {...} or [...]
+                match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
+                if match:
+                    return json.loads(match.group(1))
+            except:
+                pass
+                
+            logger.error(f"Failed to parse LLM output. Text: {text}")
             return {"action": "wait", "reason": "Parse error"}
     
+    def analyze_ui(self, ui_tree: str) -> Dict[str, Any]:
+        """
+        UNIVERSAL INTENT: Phase 3 Autonomy.
+        Asks the Brain: "What is this app? What should I do here?"
+        """
+        prompt = self._build_prompt(ui_tree, "Identify Application and Generate 3 Exploration Goals")
+        prompt += "\n\nAnalyze the UI ABOVE. Output JSON:\n"
+        prompt += '{\n  "app_type": "Brief Type (e.g. Text Editor)",\n  "suggested_goals": ["Goal 1", "Goal 2", "Goal 3"]\n}'
+        prompt += "\nJSON ONLY:"
+        
+        output = self.llm(prompt, max_tokens=256, stop=["\n", "```"], temperature=0.1)
+        text = output["choices"][0]["text"].strip()
+        
+        logger.info(f"🧠 Universal Intent Raw Output: {text}")
+        
+        # Try to parse
+        result = self._parse_json(text)
+        
+        # Fallback if parsing completely fails and returns the default error dict
+        if result.get("action") == "wait" and result.get("reason") == "Parse error":
+             logger.error("Failed to parse Intent. Converting raw text to generic goal.")
+             # Last resort: Try to extract *anything* that looks like a goal from the text
+             return {
+                 "app_type": "Unknown",
+                 "suggested_goals": ["Explore interface"]
+             }
+             
+        return result
+
     def _build_prompt(self, ui_tree: str, task: str) -> str:
         """Build the full prompt with system + memory + current task."""
         memory = self.load_memory()

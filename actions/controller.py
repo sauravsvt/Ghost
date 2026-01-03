@@ -25,7 +25,34 @@ class ActionController:
         self.screen_width, self.screen_height = pyautogui.size()
         
     def execute(self, action_data: dict):
-        """Execute an action, handling both 'action' and 'tool' keys."""
+        """Execute an action, handling both 'action', 'tool' keys, and BATCH lists."""
+        
+        # --- DYNAMIC SAFETY SHIELD ---
+        # Block dangerous actions based on keywords in args
+        DANGEROUS_KEYWORDS = ["format", "delete", "wipe", "erase", "remove", "partition", "system32", "shutdown", "restart"]
+        
+        args = action_data.get("args", {})
+        # Flatten args checking
+        all_values = [str(v).lower() for v in args.values() if v]
+        # Also check direct keys if flat structure
+        all_values += [str(v).lower() for k,v in action_data.items() if k not in ["tool", "action"]]
+        
+        for val in all_values:
+             if any(bad in val for bad in DANGEROUS_KEYWORDS):
+                 logger.warning(f"🛡️ SAFETY SHIELD: BLOCKED attempt to '{val}'")
+                 return f"Action Blocked: Safety keyword '{val}' detected."
+        
+        # --- CALM: BATCH EXECUTION SUPPORT ---
+        if isinstance(action_data, list):
+            logger.info(f"⚡ BATCH EXECUTION: Processing {len(action_data)} actions...")
+            results = []
+            for i, step in enumerate(action_data):
+                result = self.execute(step)
+                results.append(f"[{i+1}] {result}")
+                time.sleep(0.5) # Short grace period between batch steps
+            return " | ".join(results)
+        
+        # 1. Normalize the tool name
         # 1. Normalize the tool name
         act_type = action_data.get("tool") or action_data.get("action")
         args = action_data.get("args", {})
