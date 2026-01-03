@@ -133,14 +133,22 @@ class WebController:
             return f"[Error reading page: {e}]"
     
     def click_id(self, element_id: int) -> str:
-        """Click an element by its ID from the last get_elements call."""
+        """Click an element by its ID."""
         if element_id not in self._element_locators:
             return f"Error: ID {element_id} not found"
         
         try:
             locator = self._element_locators[element_id]
-            locator.click()
-            self._page.wait_for_timeout(500)  # Brief wait for page update
+            # Retry logic for detached elements
+            try:
+                locator.click(timeout=2000)
+            except:
+                # Re-fetch and click
+                self.get_elements() 
+                locator = self._element_locators.get(element_id)
+                if locator: locator.click(timeout=2000)
+                
+            self._page.wait_for_timeout(500)
             return f"Clicked element {element_id}"
         except Exception as e:
             return f"Click failed: {e}"

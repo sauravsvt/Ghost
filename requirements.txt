@@ -1,0 +1,22 @@
+# Ghost-1 Terminal Agent Dependencies
+# =====================================
+# Run: pip install -r requirements.txt
+
+# ===== CORE (Structure + Local) =====
+pywinauto>=0.6.9          # UI Accessibility (The Eyes)
+llama-cpp-python>=0.2.90  # Local LLM (The Brain)
+huggingface-hub>=0.24.0   # Model downloading
+
+# ===== ACTIONS =====
+pyautogui>=0.9.54         # Mouse/Keyboard control
+mss>=9.0.1                # Screen capture (Fallback)
+
+# ===== UTILS =====
+python-dotenv>=1.0.0
+colorama>=0.4.6
+Pillow>=10.0.0
+numpy>=1.26.0
+psutil>=5.9.0
+
+# ===== TRAINING =====
+# datasets>=2.14.0
