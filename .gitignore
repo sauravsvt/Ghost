@@ -17,7 +17,6 @@ dist/
 # Logs and Debug Files
 logs/
 *.log
-saurav_log.txt
 
 # Model files (large)
 models/
