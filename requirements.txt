@@ -20,4 +20,4 @@ psutil>=5.9.0
 pywin32>=306
 
 # ===== TRAINING =====
-# datasets>=2.14.0
+datasets>=2.14.0
