@@ -53,9 +53,18 @@ class GhostEngine:
         if not os.path.exists(models_dir):
             os.makedirs(models_dir)
             return None
-            
-        for file in os.listdir(models_dir):
-            if file.endswith(".gguf"):
+        
+        # Priority: qwen models first, then any gguf
+        files = os.listdir(models_dir)
+        
+        # First pass: look for qwen models
+        for file in files:
+            if "qwen" in file.lower() and file.endswith(".gguf"):
+                return os.path.join(models_dir, file)
+        
+        # Second pass: any gguf that's not moondream (vision model)
+        for file in files:
+            if file.endswith(".gguf") and "moondream" not in file.lower():
                 return os.path.join(models_dir, file)
         
         return None
