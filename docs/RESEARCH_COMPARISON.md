@@ -9,12 +9,12 @@ This document outlines the architectural distinctions between **Ghost-1** and tw
 ---
 
 ## 1. Versus "Continuous Autoregressive Language Models" (CALM)
-**Status:** ❌ Not Utilized
+**Status:** ✅ Implemented (Adapted)
 
 ### Ghost-1 Implementation
-- **Model:** Qwen 2.5 (0.5B - 2B) via `llama-cpp-python` / `.gguf`.
-- **Mechanism:** Standard **discrete token prediction**. Predicts the next distinct token from a fixed vocabulary.
-- **Output:** Generates action tokens (JSON) sequentially.
+- **Model:** Qwen 2.5 (0.5B) via `llama-cpp-python`.
+- **Mechanism:** **Macro Actions (Batch Execution)**. While not continuous vector prediction, Ghost-1 adopts the "multi-step" philosophy by predicting **action chunks** (Lists of JSON actions) in a single pass.
+- **Output:** Generates sequences `[{"action": "sys.launch"}, {"action": "wait"}]` at once, mimicking CALM's throughput advantage.
 
 ### CALM Method
 - **Paradigm:** **Continuous next-vector prediction**.
@@ -27,12 +27,12 @@ This document outlines the architectural distinctions between **Ghost-1** and tw
 ---
 
 ## 2. Versus "Tiny Recursive Model" (TRM)
-**Status:** ❌ Not Utilized
+**Status:** ✅ Implemented (Adapted)
 
 ### Ghost-1 Implementation
-- **Model:** "Brain Layer" (0.5B-2B parameters).
-- **Reasoning:** Improves via **Context/Prompt Engineering** (Few-Shot examples in `dataset.jsonl`) and agentic loops (Action $\to$ Env $\to$ Observation).
-- **Scale:** ~500M+ parameters.
+- **Model:** Recursive Reasoning Loop (`core/engine.py`).
+- **Reasoning:** **Agentic Recursion**. The `_think_recursively` method implements a "Draft 1 -> Critique -> Refinement" loop.
+- **Mechanism:** The model critiques its own output (`Z_t`) and feeds it back as input (`Z_t+1`) to refine accuracy before acting, mimicking TRM's internal recurrence.
 
 ### TRM Method
 - **Model:** Single **tiny network** (~5-7M parameters).
