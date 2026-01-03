@@ -14,9 +14,10 @@ dist/
 *.egg-info/
 *.egg
 
-# Logs
-# logs/*.log
-# *.log
+# Logs and Debug Files
+logs/
+*.log
+saurav_log.txt
 
 # Model files (large)
 models/
@@ -43,4 +44,10 @@ Thumbs.db
 .coverage
 htmlcov/
 
+# Environment secrets
 .env
+
+# Temporary files
+*.tmp
+*.bak
+.cache/
