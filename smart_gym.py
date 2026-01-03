@@ -9,6 +9,8 @@ import random
 import subprocess
 import psutil
 import pyautogui
+import win32gui
+import win32con
 from colorama import Fore, Style, init
 from vision.structure import UIReader
 from actions.controller import ActionController
@@ -96,13 +98,25 @@ class SmartGym:
         return False
 
     def is_app_focused(self, app_name):
-        """Checks if the target app is currently the active window"""
+        """Checks if the target app is currently the active window AND visible"""
         tree = self.reader.capture_tree()
+        
+        # Check if window exists in title
         lines = tree.split("\n")[:5]
-        for line in lines:
-            if app_name.lower() in line.lower():
-                return True
-        return False
+        app_in_title = any(app_name.lower() in line.lower() for line in lines)
+        
+        # Even if app is in title, check if it's actually responding
+        # A minimized window will still show in tree but won't be interactable
+        if not app_in_title:
+            return False
+        
+        # Check for signs of minimized/hidden state
+        # If we see very few elements (<5), window is likely minimized
+        element_count = len([l for l in tree.split("\n") if "[" in l and "]" in l])
+        if element_count < 5:
+            return False
+        
+        return True
 
     def launch_app(self, executable, app_name):
         print(f"{Fore.YELLOW}[*] Launching {executable}...{Style.RESET_ALL}")
@@ -167,10 +181,33 @@ class SmartGym:
                                 continue
                         
                         elif context == "wrong_window":
-                            # Lost focus - try to refocus
-                            print(f"{Fore.YELLOW}[!] Focus lost. Clicking center...{Style.RESET_ALL}")
-                            pyautogui.click(960, 540)
-                            time.sleep(0.5)
+                            # Lost focus - try to refocus by clicking taskbar
+                            consecutive_failures += 1
+                            if consecutive_failures > 5:
+                                print(f"{Fore.RED}[!] Too many focus failures. App likely minimized - restarting{Style.RESET_ALL}")
+                                self.kill_app(exe)
+                                self.launch_app(exe, app_name)
+                                consecutive_failures = 0
+                                continue
+                            
+                            print(f"{Fore.YELLOW}[!] Focus lost. Trying taskbar restore...{Style.RESET_ALL}")
+                            # Click bottom of screen (taskbar area) to restore minimized window
+                            import win32gui
+                            import win32con
+                            try:
+                                # Find window and restore it
+                                hwnd = win32gui.FindWindow(None, app_name)
+                                if hwnd:
+                                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                                    win32gui.SetForegroundWindow(hwnd)
+                                    time.sleep(1)
+                                else:
+                                    # Fallback: click taskbar
+                                    pyautogui.click(960, 1070)  # Taskbar position
+                                    time.sleep(0.5)
+                            except:
+                                pyautogui.click(960, 1070)
+                                time.sleep(0.5)
                             continue
                         
                         # 3. PARSE CANDIDATES
